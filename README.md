@@ -278,5 +278,7 @@ The `align-pagexml.py` script automatically detects and supports all major PAGE-
 
 ## 📜 License
 
+Copyright 2025 johnlockejrr
+
 MIT License — free to use, modify, and distribute.
 
