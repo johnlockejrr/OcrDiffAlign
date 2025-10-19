@@ -196,7 +196,6 @@ streamlit run streamlit/app.py
 4. Click Run Alignment.
 5. Review results:
    - Character-level diffs.
-   - Editable low-confidence matches.
    - Paginated navigation.
 6. Download outputs:
    - Alignment CSV
