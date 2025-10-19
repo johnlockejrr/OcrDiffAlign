@@ -39,7 +39,7 @@ It includes both a **command-line interface (CLI)** and an **interactive Streaml
 ---
 
 ## 📂 Project Structure
-
+```
 OcrDiffAlign/
 ├── align.py              # CLI script for text file alignment
 ├── align-pagexml.py      # CLI script for PAGE-XML file alignment 🆕
@@ -48,7 +48,7 @@ OcrDiffAlign/
 ├── ref/                  # Reference texts (*.txt)
 ├── samples/              # Sample PAGE-XML files for testing 🆕
 └── aligned/              # Output directory for results
-
+```
 ---
 
 ## ⚙️ Installation
