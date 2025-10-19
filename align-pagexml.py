@@ -168,25 +168,30 @@ def update_pagexml_with_aligned_text(tree, root, namespace, alignment_results, x
         return tree
 
 def write_xml_without_namespace_prefixes(tree, output_path):
-    """Write XML without namespace prefixes using lxml."""
+    """Write XML without namespace prefixes using proper lxml approach - NO REGEX."""
     # Convert ElementTree to lxml
     root = tree.getroot()
+    
+    # Extract namespace from the original tag
+    namespace = None
+    if '}' in root.tag:
+        namespace = root.tag.split('}')[0][1:]
     
     # Create a new lxml element with the same tag name but without namespace
     new_root = etree.Element(root.tag.split('}')[-1] if '}' in root.tag else root.tag)
     
-    # Copy all attributes
-    for key, value in root.attrib.items():
-        if '}' in key:
-            # Remove namespace from attribute names
-            new_key = key.split('}')[-1]
-        else:
-            new_key = key
-        new_root.set(new_key, value)
+    # Set the main xmlns attribute first
+    if namespace:
+        new_root.set('xmlns', namespace)
     
-    # Copy all children recursively
+    # Copy all other attributes exactly as they are
+    for key, value in root.attrib.items():
+        new_root.set(key, value)
+    
+    # Copy all children recursively, removing namespace prefixes from element names
     def copy_element(src, dest):
         for child in src:
+            # Get the element name without namespace
             if '}' in child.tag:
                 new_tag = child.tag.split('}')[-1]
             else:
@@ -194,13 +199,9 @@ def write_xml_without_namespace_prefixes(tree, output_path):
             
             new_child = etree.SubElement(dest, new_tag)
             
-            # Copy attributes
+            # Copy ALL attributes exactly as they are
             for key, value in child.attrib.items():
-                if '}' in key:
-                    new_key = key.split('}')[-1]
-                else:
-                    new_key = key
-                new_child.set(new_key, value)
+                new_child.set(key, value)
             
             # Copy text content
             if child.text:
