@@ -60,9 +60,11 @@ OcrDiffAlign/
 
 ## ⚙️ Installation
 
+```bash
 git clone <your-repo-url>
 cd OcrDiffAlign
 pip install -r requirements.txt
+```
 
 ### Requirements
 - Python 3.9+
