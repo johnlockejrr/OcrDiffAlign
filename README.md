@@ -61,7 +61,7 @@ OcrDiffAlign/
 ## ⚙️ Installation
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/johnlockejrr/OcrDiffAlign.git
 cd OcrDiffAlign
 pip install -r requirements.txt
 ```
