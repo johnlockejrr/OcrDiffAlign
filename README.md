@@ -1,334 +1,149 @@
-# 📜 Hebrew OCR Alignment Toolkit
+# OcrDiffAlign
 
-This project provides tools to **align noisy OCR output** (e.g., Hebrew Torah passages) against a **reference text**.  
-It includes both a **command-line interface (CLI)** and an **interactive Streamlit app**, plus specialized tools for **PAGE-XML file processing**.
+Align noisy Hebrew OCR output against a reference text — as a CLI, an HTTP API and a Svelte web
+app. Built for manuscript transcriptions (PAGE-XML from Bodleian / BL / HCL digitisations) checked
+against a printed critical edition.
 
----
+- **Engine** — one implementation of normalisation, fuzzy matching, character diffing and
+  confusion counting, shared by every entry point.
+- **CLI** — `ocrdiff align` for plain OCR text, `ocrdiff pagexml` for PAGE-XML files,
+  `ocrdiff serve` for the app.
+- **Web app** — Svelte SPA with reference selection, inline editing of every matched line,
+  character-level diffs and CSV/TXT downloads.
 
-## ✨ Features
+## Requirements
 
-### Core Alignment Engine
-- **Normalization**: Strip non-Hebrew characters, preserve final forms (no unification).
-- **Fuzzy alignment**: Uses `rapidfuzz` (Levenshtein distance) to align OCR lines with reference text.
-- **Diagnostics**:
-  - Character-level diffs (red = OCR-only, green = reference-only).
-  - Confusion log: tracks substitutions (e.g., ת → ש).
+- [uv](https://docs.astral.sh/uv/) (Python 3.10+; the project pins its own `.venv`)
+- Node.js 20+ for the frontend build
 
-### Text File Processing (`align.py`)
-- **Outputs**:
-  - Alignment CSV (OCR line, match, score, index, final match).
-  - Matched text TXT (aligned reference text in same order as OCR input).
-  - Confusion CSV (confusion statistics with `Confused Char` and `Confused With`).
-
-### PAGE-XML Processing (`align-pagexml.py`) 🆕
-- **PAGE-XML Support**: Processes PAGE-XML files with automatic namespace detection (2009-2019 schemas).
-- **OCR Extraction**: Extracts text from `<Unicode>` tags under `<TextLine>` elements.
-- **Smart Updates**: Replaces incorrect OCR lines with aligned reference text.
-- **Clean Output**: Saves aligned PAGE-XML files without namespace prefixes.
-- **Progress Tracking**: Rich progress bar for multiple files, detailed output for single files.
-- **Batch Processing**: Handles both single files and entire directories.
-
-### PAGE-XML Processing (Optimized) (`align-pagexml-index.py`) ⚡
-- **All features of `align-pagexml.py`** with 2-3x performance improvement
-- **Pre-indexing**: Builds reference text index upfront for faster lookups
-- **Optimized for large datasets**: Especially beneficial for multiple files and large reference texts
-- **Identical accuracy**: Same results as standard version, just faster execution
-
-### Streamlit App
-- **Interactive Interface**:
-  - Paste or upload OCR text.
-  - Select reference text dynamically from `ref/*.txt`.
-  - Set low-score threshold for editable matches.
-  - Paginated results with inline editing.
-  - Download buttons for CSV, TXT, and confusion logs.
-
----
-
-## 📂 Project Structure
-```
-OcrDiffAlign/
-├── align.py              # CLI script for text file alignment
-├── align-pagexml.py      # CLI script for PAGE-XML file alignment 🆕
-├── align-pagexml-index.py # Optimized PAGE-XML alignment (2-3x faster) ⚡
-├── streamlit/
-│   └── app.py            # Streamlit interactive app
-├── ref/                  # Reference texts (*.txt)
-├── samples/              # Sample PAGE-XML files for testing 🆕
-└── aligned/              # Output directory for results
-```
----
-
-## ⚙️ Installation
+## Install
 
 ```bash
-git clone https://github.com/johnlockejrr/OcrDiffAlign.git
-cd OcrDiffAlign
-pip install -r requirements.txt
+uv sync --extra dev
 ```
-
-### Requirements
-- Python 3.9+
-- rapidfuzz
-- streamlit
-- lxml (for PAGE-XML processing)
-- rich (for progress bars)
-
-Install with:
 
 ```bash
-pip install rapidfuzz streamlit lxml rich
+npm --prefix frontend install
 ```
 
-Or use conda:
+## Run
+
+One command in development — starts the API on `:8000` with autoreload and Vite on `:5173`:
 
 ```bash
-conda create -n OcrDiffAlign-py3.11 python=3.11
-conda activate OcrDiffAlign-py3.11
-pip install rapidfuzz streamlit lxml rich
+npm --prefix frontend run dev
 ```
 
----
+Open <http://localhost:5173>. The Vite dev server proxies `/api` to the FastAPI process, so there
+is nothing to configure.
 
-## 🖥️ CLI Usage
-
-### Text File Alignment (`align.py`)
-
-The CLI script aligns OCR lines against a reference text and saves results.
+One command for production — builds the SPA and serves the app and the API from a single process
+on <http://127.0.0.1:8000>:
 
 ```bash
-python align.py --ocr my_ocr.txt --ref ref/torah.txt --out aligned/
+npm --prefix frontend run build && uv run uvicorn ocrdiffalign.app:app --host 127.0.0.1 --port 8000
 ```
 
-**Arguments:**
-- `--ocr`: Path to OCR text file (line-separated).
-- `--ref`: Path to reference text file.
-- `--out`: Output directory (default: aligned/).
-- `--threshold`: Low-score threshold (default: 70).
+## CLI
 
-**Output:**
-- `alignment_<uuid>.csv` → Alignment log.
-- `alignment_<uuid>.txt` → Final matched text.
-- `confusions_<uuid>.csv` → Confusion statistics.
-
-### PAGE-XML File Alignment (`align-pagexml.py`) 🆕
-
-The PAGE-XML script processes PAGE-XML files, extracts OCR text, aligns it with reference text, and updates the XML files with corrected text.
-
-#### Single File Processing
 ```bash
-python align-pagexml.py --pagexml document.xml --ref ref/torah.txt --out aligned/
+uv run ocrdiff align --ocr samples/ocr.txt --ref schorch_verses.txt --out aligned
 ```
 
-**Output for single file:**
-```
-🚀 Starting PAGE-XML OCR Alignment
-📁 Input: document.xml
-📖 Reference: ref/torah.txt
-📤 Output: aligned/
-
-🔄 Processing: document.xml
-📝 Found 39 OCR lines
-🏷️  Detected namespace: http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15
-
-📊 Summary Report
-- Lines processed: 39
-- Average score: 99.03
-- Low-confidence (<70): 0 lines (0.0%)
-
-🔝 Top 5 Confusions:
-  ש → ∅ : 2 times
-  ל → ∅ : 2 times
-  ן → ף : 1 times
-  ∅ → ו : 1 times
-  ∅ → ע : 1 times
-💾 Saved aligned PAGE-XML: aligned/xml/document.xml
-
-✅ Alignment complete! Processed 1 file(s)
-
-📄 File 1:
-  - Aligned PAGE-XML: aligned/xml/document.xml
-  - Alignment CSV: aligned/alignment_abc123.csv
-  - Matched text TXT: aligned/alignment_abc123.txt
-  - Confusion log CSV: aligned/confusions_abc123.csv
-```
-
-#### Multiple Files Processing
 ```bash
-python align-pagexml.py --pagexml samples/ --ref ref/torah.txt --out aligned/
+uv run ocrdiff pagexml --pagexml samples --ref schorch_verses.txt --out aligned
 ```
 
-**Output for multiple files:**
+`--ref` accepts a reference name inside `ref/` (`schorch_verses.txt`) or a path to a reference file.
+`align` writes `aligned/<ref>-<id>.csv`, `.txt` and `confusions_<ref>-<id>.csv`; `pagexml` writes
+corrected documents to `aligned/xml/`. The web app produces the same artefacts as the CLI — both
+call this one engine.
+
+## HTTP API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/health` | Liveness and version |
+| `GET` | `/api/refs` | Reference files available for selection |
+| `POST` | `/api/align` | Align pasted OCR text; returns results, summary, confusions and artefact contents |
+| `POST` | `/api/pagexml` | Align uploaded PAGE-XML files; saves corrected XML, reports per-file errors |
+| `POST` | `/api/export` | Persist edited results and re-render the artefacts |
+| `GET` | `/api/docs` | OpenAPI explorer |
+
+`POST /api/align` answers with the artefacts inline, so downloads need no second request;
+`POST /api/export` exists so an edited review can be saved without re-running the alignment.
+
+## Layout
+
 ```
-  Processing BL_Or_1443_285.xml ━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:14 0:00:00
-
-✅ Alignment complete! Processed 3/3 files successfully
-📤 Aligned files saved to: aligned/xml/
+src/ocrdiffalign/
+├── text.py       # normalisation, file reading, line splitting
+├── diff.py       # character diff + confusion counting
+├── index.py      # reference index and candidate lookup
+├── align.py      # alignment of lines, artefacts, reporting
+├── pagexml.py    # PAGE-XML parsing, correction, serialisation
+├── app.py        # FastAPI schemas, routes, error handling
+├── cli.py        # `ocrdiff` entry point
+└── config.py     # settings resolution and reference validation
+frontend/         # Svelte SPA (Vite)
+ref/              # reference texts
+samples/          # sample PAGE-XML documents for testing
+tests/            # pytest suite
+aligned/          # generated output (gitignored)
 ```
 
-**Arguments:**
-- `--pagexml`: Path to PAGE-XML file or directory containing PAGE-XML files.
-- `--ref`: Path to reference text file.
-- `--out`: Output directory (default: aligned/).
-- `--threshold`: Low-score threshold (default: 70).
+## How the alignment works
 
-**Features:**
-- **Automatic namespace detection**: Supports PAGE-XML schemas from 2009-2019.
-- **Smart text extraction**: Finds OCR text in `<Unicode>` tags under `<TextLine>` elements.
-- **Intelligent updates**: Only replaces text that differs significantly (score > 50).
-- **Clean XML output**: Removes namespace prefixes while preserving structure.
-- **Progress tracking**: Rich progress bar for multiple files, detailed output for single files.
-- **Timestamp updates**: Updates `<LastChange>` element with current timestamp.
+OCR lines are matched against reference *lines* rather than against every word window in the
+reference. Candidates for a line are the reference line itself plus joins with the following line,
+which covers an OCR line that spans two verses. Matching is anchored: after line *n* is placed,
+line *n+1* is searched in a window around that position, falling back to a global search when the
+window scores badly. That is both cheaper than scanning the whole reference per line and more
+accurate, because it uses the fact that a page of manuscript follows its edition in order.
 
-**Output Structure:**
-```
-aligned/
-├── xml/                          # Aligned PAGE-XML files
-│   ├── document1.xml
-│   └── document2.xml
-├── alignment_<uuid>.csv          # Alignment details
-├── alignment_<uuid>.txt          # Matched reference text
-└── confusions_<uuid>.csv         # Character confusion statistics
-```
+Confusions come from `difflib` opcodes on the *normalised* pair, so a multi-character replacement
+reports every character involved instead of pairing only the last removed character with the first
+added one. Markup is HTML-escaped, so OCR text cannot inject content into the SPA.
 
-### PAGE-XML File Alignment (Optimized) (`align-pagexml-index.py`) ⚡
+## Configuration
 
-The optimized version provides **2-3x faster performance** while maintaining identical accuracy and results.
+All settings are environment variables with working defaults; nothing needs a `.env` file.
 
-#### Usage
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OCRDIFF_HOME` | package root | Project root holding `ref/` |
+| `OCRDIFF_REF_DIR` | `$OCRDIFF_HOME/ref` | Allowed location of reference files |
+| `OCRDIFF_OUTPUT_DIR` | `$OCRDIFF_HOME/aligned` | Where artefacts are written |
+| `OCRDIFF_FRONTEND_DIR` | `frontend/dist` if present | Static build served at `/` |
+| `OCRDIFF_MAX_UPLOAD_BYTES` | `8388608` | Size cap per file (reference, upload) |
+| `OCRDIFF_MAX_OCR_CHARS` | `2000000` | Size cap on a submitted OCR body |
+| `OCRDIFF_MAX_XML_FILES` | `64` | Files per request or per CLI run |
+| `OCRDIFF_ALLOWED_ORIGINS` | localhost:5173 origins | CORS allowlist |
+| `OCRDIFF_DEBUG` | off | Include exception details in 500 responses |
+
+## Security notes
+
+- Reference names are validated against `ref_dir`: no traversal, no absolute paths outside it, no
+  symlinks. Upload filenames are reduced to their basename before being written.
+- Every payload is size-checked before parsing. XML is parsed with `resolve_entities=False`, so
+  entity definitions (including expansion bombs) are never expanded.
+- Responses carry `x-content-type-options: nosniff`, `x-frame-options: DENY`,
+  `referrer-policy: no-referrer` and `cache-control: no-store`; the SPA also gets a CSP.
+- CORS is an explicit allowlist with `allow_credentials=False`, and expected errors return
+  `{"error": <code>, "message": <text>}` instead of a traceback.
+- There is no authentication: the app is meant to be bound to `127.0.0.1`. Put it behind a
+  reverse proxy with auth if you expose it to a network.
+
+## Tests
+
 ```bash
-# Single file (optimized)
-python align-pagexml-index.py --pagexml document.xml --ref ref/torah.txt --out aligned/
-
-# Multiple files (optimized)
-python align-pagexml-index.py --pagexml samples/ --ref ref/torah.txt --out aligned/
+uv run pytest
 ```
 
-#### Performance Comparison
-| Version | 3 Files Processing | Performance Gain |
-|---------|-------------------|------------------|
-| Standard | 15.7 seconds | Baseline |
-| Optimized | 9.3 seconds | **1.7x faster** |
+The suite covers normalisation, the diff and confusion rules (including the multi-character replace
+case), index anchoring and the global fallback, PAGE-XML parsing and write-back against the committed
+samples, and the HTTP layer including reference traversal, size limits and validation errors.
 
-#### Key Optimizations
-- **Pre-indexing**: Builds all possible reference windows upfront
-- **Single lookup**: Each OCR line uses pre-built index instead of generating windows
-- **Memory efficient**: Optimized for large reference texts and multiple files
-- **Identical results**: Same accuracy and output as standard version
+## License
 
-#### When to Use
-- **Large reference texts**: Especially beneficial with extensive reference materials
-- **Multiple files**: Batch processing of many PAGE-XML files
-- **Performance critical**: When processing time is important
-- **Production workflows**: Automated processing pipelines
-
-**Note**: Both versions produce identical results. Use the optimized version for better performance, especially with large datasets.
-
----
-
-## 🌐 Streamlit App
-
-Run the interactive app:
-
-streamlit run streamlit/app.py
-
-### Workflow
-1. Select a reference text from ref/.
-2. Paste OCR text or upload a .txt file.
-3. Adjust low-score threshold.
-4. Click Run Alignment.
-5. Review results:
-   - Character-level diffs.
-   - Paginated navigation.
-6. Download outputs:
-   - Alignment CSV
-   - Matched text TXT
-   - Confusion log CSV
-
----
-
-## 📊 Confusion Log
-
-The confusion log captures systematic OCR errors. Example:
-
-OCR Line,Reference Line,Confused Char,Confused With,Count
-ברתשית ברא תלהים,בראשית ברא אלהים,ת,ש,1
-ברתשית ברא תלהים,בראשית ברא אלהים,ל,א,1
-
-This helps quantify common OCR mistakes and improve preprocessing.
-
----
-
-## 📝 Examples
-
-### Processing a Single PAGE-XML File
-```bash
-# Process one PAGE-XML file with detailed output
-python align-pagexml.py --pagexml samples/BL_Or_1443_285.xml --ref ref/schorch_verses.txt --out results/
-```
-
-### Processing Multiple PAGE-XML Files
-```bash
-# Process all PAGE-XML files in a directory with progress bar
-python align-pagexml.py --pagexml samples/ --ref ref/schorch_verses.txt --out results/
-```
-
-### Processing PAGE-XML Files (Optimized) ⚡
-```bash
-# Single file with optimized performance
-python align-pagexml-index.py --pagexml samples/BL_Or_1443_285.xml --ref ref/schorch_verses.txt --out results/
-
-# Multiple files with optimized performance (2-3x faster)
-python align-pagexml-index.py --pagexml samples/ --ref ref/schorch_verses.txt --out results/
-```
-
-### Text File Alignment
-```bash
-# Process plain text OCR file
-python align.py --ocr ocr.txt --ref ref/schorch_verses.txt --out results/
-```
-
-### Using the Streamlit App
-```bash
-# Launch interactive web interface
-streamlit run streamlit/app.py
-```
-
-## 🔧 Technical Details
-
-### PAGE-XML Namespace Support
-The `align-pagexml.py` script automatically detects and supports all major PAGE-XML namespace versions:
-- 2009-03-16
-- 2010-01-12, 2010-03-19
-- 2013-07-15
-- 2014-08-26
-- 2016-07-15, 2017-07-15, 2018-07-15, 2019-07-15
-
-### Text Correction Logic
-- Only replaces OCR text when alignment score > 50%
-- Preserves original XML structure and attributes
-- Updates `<LastChange>` timestamp automatically
-- Removes namespace prefixes for cleaner output
-
-### Progress Tracking
-- **Single file**: Detailed verbose output with statistics
-- **Multiple files**: Rich progress bar with file names and timing
-- **Error handling**: Graceful handling of malformed XML files
-
-## 🚀 Future Enhancements
-
-- Regex-based pre-cleaning toggle
-- Error frequency dashboard in Streamlit
-- Search bar for OCR lines
-- Batch processing of multiple OCR files
-- Support for additional XML formats (ALTO, hOCR)
-- Confidence score visualization
-- Automated quality assessment metrics
-
----
-
-## 📜 License
-
-Copyright 2025 johnlockejrr
-
-MIT License — free to use, modify, and distribute.
-
+MIT — see [LICENSE](LICENSE).

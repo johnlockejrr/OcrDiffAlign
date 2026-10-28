@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.python-version
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Generated alignment output
+aligned/
+
+# Editor / local environment
+.idea
+.idea/
+.vscode
+.vscode/
+.claude
+.claude/
+.mcp.json
+.ripgreprc
+.gitconfig
+.gitmodules
+.bashrc
+.bash_profile
+.profile
+.zshrc
+.zprofile
+.DS_Store
+.env
+.env.*
+!.env.example
