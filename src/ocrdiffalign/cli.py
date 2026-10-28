@@ -11,8 +11,8 @@ import argparse
 import logging
 import os
 import sys
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Callable, Sequence
 
 from . import __version__
 from .align import align_text, format_report
@@ -53,8 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
     align.set_defaults(func=_cmd_align)
 
     pagexml = subparsers.add_parser("pagexml", help="Align PAGE-XML files against a reference.")
-    pagexml.add_argument("--pagexml", required=True, help="A PAGE-XML file, or a directory of them.")
-    pagexml.add_argument("--ref", required=True, help="Reference name inside ref/, or a path to one.")
+    pagexml.add_argument(
+        "--pagexml", required=True, help="A PAGE-XML file, or a directory of them."
+    )
+    pagexml.add_argument(
+        "--ref", required=True, help="Reference name inside ref/, or a path to one."
+    )
     pagexml.add_argument("--out", type=Path, help="Output directory (default: <home>/aligned).")
     pagexml.add_argument("--threshold", type=_percentage, default=70, help="Low-score threshold.")
     pagexml.set_defaults(func=_cmd_pagexml)
@@ -120,7 +124,9 @@ def _cmd_serve(args: argparse.Namespace, settings: Settings) -> int:
         os.environ["OCRDIFF_OUTPUT_DIR"] = str(resolved.output_dir)
         if resolved.frontend_dir is not None:
             os.environ["OCRDIFF_FRONTEND_DIR"] = str(resolved.frontend_dir)
-        uvicorn.run("ocrdiffalign.app:create_app", factory=True, host=args.host, port=args.port, reload=True)
+        uvicorn.run(
+            "ocrdiffalign.app:create_app", factory=True, host=args.host, port=args.port, reload=True
+        )
     else:
         from .app import create_app
 

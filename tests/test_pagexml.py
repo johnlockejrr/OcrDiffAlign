@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from lxml import etree
 
-from ocrdiffalign.align import Alignment, LineResult, align_lines, summarize
+from ocrdiffalign.align import Alignment, LineResult, summarize
 from ocrdiffalign.errors import FileTooLarge, InvalidDocument, InvalidInput
 from ocrdiffalign.index import ReferenceIndex
 from ocrdiffalign.pagexml import (
@@ -27,21 +27,20 @@ PAGE = "http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15"
 def page_bytes(*texts: str) -> bytes:
     """A minimal PAGE-XML document whose TextLines hold exactly ``texts``."""
     lines = "".join(
-        f'<TextLine id="l{number}"><TextEquiv>'
-        f"<Unicode>{text}</Unicode></TextEquiv></TextLine>"
+        f'<TextLine id="l{number}"><TextEquiv><Unicode>{text}</Unicode></TextEquiv></TextLine>'
         for number, text in enumerate(texts, start=1)
     )
     xml = (
         f'<?xml version="1.0" encoding="UTF-8"?>\n'
         f'<PcGts xmlns="{PAGE}" '
         f'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
-        f"<Metadata/><Page><TextRegion id=\"r1\">{lines}</TextRegion></Page></PcGts>"
+        f'<Metadata/><Page><TextRegion id="r1">{lines}</TextRegion></Page></PcGts>'
     )
     return xml.encode("utf-8")
 
 
-def one_line_alignment(text: str) -> Alignment:
-    result = LineResult(1, text, text, text, 100.0, 1, text, "")
+def one_line_alignment(ocr: str, match: str, score: float = 100.0) -> Alignment:
+    result = LineResult(1, ocr, ocr, match, score, 1, match, "")
     return Alignment((result,), summarize((result,), 70), ())
 
 
@@ -85,19 +84,21 @@ def test_line_without_a_textequiv_layer_is_still_found() -> None:
 
 def test_apply_alignment_writes_back_onto_the_source_element() -> None:
     document = parse_bytes(page_bytes("ברתשית"), max_bytes=4096)
-    assert apply_alignment(document, one_line_alignment("בראשית")) == 1
+    assert apply_alignment(document, one_line_alignment("ברתשית", "בראשית")) == 1
     assert document.elements[0].text == "בראשית"
 
 
 def test_apply_alignment_refuses_a_mismatched_result_set() -> None:
     document = parse_bytes(page_bytes("ברא", "ברא"), max_bytes=4096)
     with pytest.raises(InvalidDocument):
-        apply_alignment(document, one_line_alignment("ברא"))
+        apply_alignment(document, one_line_alignment("ברא", "ברא"))
 
 
 def test_text_scoring_below_the_floor_is_left_alone() -> None:
     document = parse_bytes(page_bytes("אבג"), max_bytes=4096)
-    apply_alignment(document, one_line_alignment("צףץץץץ"), min_replace_score=99.0)
+    apply_alignment(
+        document, one_line_alignment("אבג", "צףץץץץ", score=20.0), min_replace_score=99.0
+    )
     assert document.elements[0].text == "אבג"
 
 
@@ -107,7 +108,7 @@ def test_apply_alignment_leaves_lastchange_untouched_when_nothing_changed() -> N
         b"<Metadata><Creator>t</Creator><LastChange>2020-01-01T00:00:00</LastChange></Metadata>",
     )
     document = parse_bytes(xml, max_bytes=4096)
-    apply_alignment(document, one_line_alignment("ברא"))
+    apply_alignment(document, one_line_alignment("ברא", "ברא"))
     stamps = [
         element.text
         for element in document.root.iter()
@@ -122,7 +123,7 @@ def test_apply_alignment_stamps_lastchange_when_it_writes() -> None:
         b"<Metadata><Creator>t</Creator><LastChange>2020-01-01T00:00:00</LastChange></Metadata>",
     )
     document = parse_bytes(xml, max_bytes=4096)
-    apply_alignment(document, one_line_alignment("ברתשית"))
+    apply_alignment(document, one_line_alignment("ברא", "ברתשית"))
     stamps = [
         element.text
         for element in document.root.iter()
@@ -142,11 +143,15 @@ def test_serialize_uses_one_default_namespace_and_keeps_the_xsi_declaration() ->
 
 def test_entity_references_are_not_expanded() -> None:
     """``resolve_entities=False`` is the lxml mitigation for entity-expansion bombs."""
-    with_entity = page_bytes("ברא").replace(
-        b"?>\n",
-        b"?>\n<!DOCTYPE PcGts [<!ENTITY x \"SMUGGLED\">]>\n",
-        1,
-    ).replace("<Unicode>ברא</Unicode>".encode(), b"<Unicode>&x;</Unicode>")
+    with_entity = (
+        page_bytes("ברא")
+        .replace(
+            b"?>\n",
+            b'?>\n<!DOCTYPE PcGts [<!ENTITY x "SMUGGLED">]>\n',
+            1,
+        )
+        .replace("<Unicode>ברא</Unicode>".encode(), b"<Unicode>&x;</Unicode>")
+    )
     assert b"SMUGGLED" not in serialize(parse_bytes(with_entity, max_bytes=4096))
 
 
@@ -181,9 +186,7 @@ def test_align_document_writes_corrected_xml(tmp_path: Path, xml_samples: list[P
     source = xml_samples[0]
     data = source.read_bytes()
     texts = parse_bytes(data, max_bytes=8 * 1024 * 1024).texts
-    outcome = align_document(
-        source.name, data, ReferenceIndex(texts, max_span=1), out_dir=tmp_path
-    )
+    outcome = align_document(source.name, data, ReferenceIndex(texts, max_span=1), out_dir=tmp_path)
     assert isinstance(outcome, DocumentOutcome)
     assert outcome.xml_path == tmp_path / "xml" / source.name
     assert outcome.alignment.summary.lines == len(texts)

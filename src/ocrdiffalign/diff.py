@@ -14,6 +14,7 @@ is what the previous implementation did.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from functools import lru_cache
@@ -91,9 +92,9 @@ def char_diff(ocr: str, ref: str) -> Diff:
     return Diff(html="".join(parts), pairs=tuple(pairs))
 
 
-def count_confusions(pairs: object) -> tuple[Confusion, ...]:
+def count_confusions(pairs: Iterable[tuple[str, str]]) -> tuple[Confusion, ...]:
     """Aggregate ``(ocr_char, ref_char)`` pairs into ranked confusions."""
-    collected = Counter(pairs)  # type: ignore[arg-type]
+    collected = Counter(pairs)
     return tuple(
         Confusion(ocr_char, ref_char, count)
         for (ocr_char, ref_char), count in sorted(

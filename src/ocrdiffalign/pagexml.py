@@ -59,18 +59,39 @@ class ParsedDocument:
 
 
 def _localname(element: etree._Element) -> str:
-    return etree.QName(element).localname
+    """Tag without its namespace prefix.
+
+    ``iter()`` also yields entity, comment and processing-instruction nodes, whose ``tag`` is
+    not a string; those never match a name, so they are reported as having no name at all.
+    """
+    tag = element.tag if isinstance(element.tag, str) else ""
+    return tag.rsplit("}", 1)[-1]
+
+
+def _namespace_of(element: etree._Element) -> str | None:
+    """Namespace URI of an element, or ``None`` if it has none or is not a real element."""
+    tag = element.tag if isinstance(element.tag, str) else ""
+    if not tag.startswith("{"):
+        return None
+    return tag[1:].partition("}")[0] or None
 
 
 def _descendants(root: etree._Element, name: str) -> list[etree._Element]:
     return [element for element in root.iter() if _localname(element) == name]
 
 
-def _first_descendant(element: etree._Element, name: str) -> etree._Element | None:
-    for child in element.iter():
-        if child is not element and _localname(child) == name:
-            return child
-    return None
+def _nsmap_for(root: etree._Element, default_namespace: str | None) -> dict[str | None, str]:
+    """Every prefix used anywhere in the tree, so no serialised child needs a generated one."""
+    nsmap: dict[str | None, str] = {}
+    if default_namespace:
+        nsmap[None] = default_namespace
+    for element in root.iter():
+        if not isinstance(element.tag, str):
+            continue
+        for prefix, uri in element.nsmap.items():
+            if prefix and prefix not in nsmap:
+                nsmap[prefix] = uri
+    return nsmap
 
 
 def detect_namespace(root: etree._Element) -> str | None:
@@ -78,7 +99,7 @@ def detect_namespace(root: etree._Element) -> str | None:
     if _localname(root) != "PcGts":
         raise InvalidDocument(f"Root element is {_localname(root)!r}, expected 'PcGts'.")
 
-    namespace = etree.QName(root).namespace
+    namespace = _namespace_of(root)
     if not namespace:
         return None
     if not namespace.startswith(PAGE_SCHEMA_PREFIX):
@@ -115,7 +136,9 @@ def parse_bytes(data: bytes, *, max_bytes: int = DEFAULT_MAX_UPLOAD_BYTES) -> Pa
     else:
         # Some producers put the transcription on the region when there are no text lines.
         elements = tuple(
-            element for region in _descendants(root, "TextRegion") for element in _equivalents_of(region)
+            element
+            for region in _descendants(root, "TextRegion")
+            for element in _equivalents_of(region)
         )
 
     texts = tuple((element.text or "").strip() for element in elements)
@@ -160,33 +183,32 @@ def apply_alignment(
 
 
 def serialize(document: ParsedDocument) -> bytes:
-    """Serialise without namespace prefixes, keeping a single default declaration."""
-    nsmap: dict[str | None, str] = {}
-    if document.namespace:
-        nsmap[None] = document.namespace
-    for prefix, uri in document.root.nsmap.items():
-        if prefix:
-            nsmap[prefix] = uri
+    """Serialise without namespace prefixes, keeping a single default declaration.
+
+    Element children only: entity, comment and processing-instruction nodes have no element to
+    recreate, so an unexpanded entity reference is dropped rather than resolved.
+    """
+    nsmap = _nsmap_for(document.root, document.namespace)
 
     def clone(source: etree._Element, parent: etree._Element | None) -> etree._Element:
-        namespace, local = etree.QName(source).namespace, _localname(source)
+        namespace, local = _namespace_of(source), _localname(source)
         tag = f"{{{namespace}}}{local}" if namespace else local
         target = (
-            etree.Element(tag, nsmap=nsmap)
-            if parent is None
-            else etree.SubElement(parent, tag)
+            etree.Element(tag, nsmap=nsmap) if parent is None else etree.SubElement(parent, tag)
         )
         for key, value in source.attrib.items():
             target.set(key, value)
         target.text = source.text
         target.tail = source.tail
         for child in source:
-            clone(child, target)
+            if isinstance(child.tag, str):
+                clone(child, target)
         return target
 
-    return XML_DECLARATION + etree.tostring(
+    rendered: bytes = etree.tostring(
         clone(document.root, None), encoding="utf-8", pretty_print=True
     )
+    return XML_DECLARATION + rendered
 
 
 @dataclass(frozen=True)
@@ -227,9 +249,7 @@ def align_document(
 
     alignment = align_lines(document.texts, index, threshold=threshold, radius=radius)
     updated = apply_alignment(document, alignment)
-    xml_path = write_atomic(
-        Path(out_dir) / "xml" / safe_name, serialize(document).decode("utf-8")
-    )
+    xml_path = write_atomic(Path(out_dir) / "xml" / safe_name, serialize(document).decode("utf-8"))
     return DocumentOutcome(
         filename=safe_name,
         xml_path=xml_path,

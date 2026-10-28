@@ -12,9 +12,7 @@ def test_identical_strings_produce_no_confusions() -> None:
 def test_single_substitution_is_reported_as_a_pair() -> None:
     diff = char_diff("בראשית", "ברתשית")
     assert diff.pairs == (("א", "ת"),)
-    assert diff.html == (
-        'בר<span class="ocr-only">א</span><span class="ref-only">ת</span>שית'
-    )
+    assert diff.html == ('בר<span class="ocr-only">א</span><span class="ref-only">ת</span>שית')
 
 
 def test_multi_character_replace_is_paired_positionally() -> None:

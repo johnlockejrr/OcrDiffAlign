@@ -1,7 +1,7 @@
 """Runtime configuration.
 
-Everything is resolved once from the environment (or explicit overrides for tests) so
-no path is ever taken from a request without validation against ``ref_dir``.
+Everything is resolved once from the environment so no path is ever taken from a request
+without validation against ``ref_dir``.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .errors import InvalidReference, InvalidInput
+from .errors import InvalidInput, InvalidReference
 
 DEFAULT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_OCR_CHARS = 2_000_000
@@ -31,6 +31,15 @@ def _discover_root() -> Path:
     return Path.cwd().resolve()
 
 
+def _resolve(path: str | Path) -> Path:
+    return Path(path).expanduser().resolve()
+
+
+def _path_env(name: str, default: Path) -> Path:
+    raw = os.environ.get(name)
+    return _resolve(raw) if raw else default
+
+
 def _int_env(name: str, default: int) -> int:
     raw = os.environ.get(name)
     if raw is None or raw == "":
@@ -42,6 +51,18 @@ def _int_env(name: str, default: int) -> int:
     if value <= 0:
         raise InvalidInput(f"{name} must be positive, got {value}")
     return value
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    return default if raw is None else raw.strip().lower() in {"1", "true", "yes"}
+
+
+def _origins_env(default: tuple[str, ...]) -> tuple[str, ...]:
+    raw = os.environ.get("OCRDIFF_ALLOWED_ORIGINS")
+    if not raw:
+        return default
+    return tuple(origin.strip() for origin in raw.split(",") if origin.strip())
 
 
 @dataclass(frozen=True)
@@ -59,71 +80,52 @@ class Settings:
     debug: bool = False
 
     @classmethod
-    def load(cls, **overrides: object) -> Settings:
-        """Build settings from the environment, with keyword overrides taking precedence."""
-        root = Path(str(overrides.get("root") or _discover_root())).expanduser().resolve()
-        ref_dir = Path(
-            str(
-                overrides.get("ref_dir")
-                or os.environ.get("OCRDIFF_REF_DIR")
-                or root / "ref"
-            )
-        ).expanduser().resolve()
-        output_dir = Path(
-            str(
-                overrides.get("output_dir")
-                or os.environ.get("OCRDIFF_OUTPUT_DIR")
-                or root / "aligned"
-            )
-        ).expanduser().resolve()
-
-        frontend_raw = overrides.get("frontend_dir") or os.environ.get("OCRDIFF_FRONTEND_DIR")
-        if frontend_raw is None:
-            built = root / "frontend" / "dist"
-            frontend_dir: Path | None = built if built.is_dir() else None
-        elif str(frontend_raw) == "":
-            frontend_dir = None
-        else:
-            frontend_dir = Path(str(frontend_raw)).expanduser().resolve()
-
-        origins_raw = overrides.get("allowed_origins") or os.environ.get("OCRDIFF_ALLOWED_ORIGINS")
-        if origins_raw is None:
-            origins: tuple[str, ...] = DEFAULT_ORIGINS
-        elif isinstance(origins_raw, (tuple, list)):
-            origins = tuple(str(o) for o in origins_raw)
-        else:
-            origins = tuple(o.strip() for o in str(origins_raw).split(",") if o.strip())
-
-        debug_raw = overrides.get("debug")
-        debug = (
-            os.environ.get("OCRDIFF_DEBUG", "").lower() in {"1", "true", "yes"}
-            if debug_raw is None
-            else bool(debug_raw)
+    def load(cls, root: str | Path | None = None) -> Settings:
+        """Build settings from the environment; ``root`` overrides ``$OCRDIFF_HOME``."""
+        resolved_root = _resolve(root) if root is not None else _discover_root()
+        built_frontend = resolved_root / "frontend" / "dist"
+        frontend_env = os.environ.get("OCRDIFF_FRONTEND_DIR")
+        frontend_dir = (
+            _resolve(frontend_env)
+            if frontend_env
+            else (built_frontend if built_frontend.is_dir() else None)
         )
-
         return cls(
-            root=root,
-            ref_dir=ref_dir,
-            output_dir=output_dir,
+            root=resolved_root,
+            ref_dir=_path_env("OCRDIFF_REF_DIR", resolved_root / "ref"),
+            output_dir=_path_env("OCRDIFF_OUTPUT_DIR", resolved_root / "aligned"),
             frontend_dir=frontend_dir,
-            max_upload_bytes=int(  # type: ignore[arg-type]
-                overrides.get("max_upload_bytes")
-                or _int_env("OCRDIFF_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES)
-            ),
-            max_ocr_chars=int(  # type: ignore[arg-type]
-                overrides.get("max_ocr_chars")
-                or _int_env("OCRDIFF_MAX_OCR_CHARS", DEFAULT_MAX_OCR_CHARS)
-            ),
-            max_xml_files=int(  # type: ignore[arg-type]
-                overrides.get("max_xml_files")
-                or _int_env("OCRDIFF_MAX_XML_FILES", DEFAULT_MAX_XML_FILES)
-            ),
-            allowed_origins=origins,
-            debug=debug,
+            max_upload_bytes=_int_env("OCRDIFF_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES),
+            max_ocr_chars=_int_env("OCRDIFF_MAX_OCR_CHARS", DEFAULT_MAX_OCR_CHARS),
+            max_xml_files=_int_env("OCRDIFF_MAX_XML_FILES", DEFAULT_MAX_XML_FILES),
+            allowed_origins=_origins_env(DEFAULT_ORIGINS),
+            debug=_bool_env("OCRDIFF_DEBUG", False),
         )
 
-    def with_overrides(self, **overrides: object) -> Settings:
-        return replace(self, **{k: v for k, v in overrides.items() if v is not None})
+    def with_overrides(
+        self,
+        *,
+        ref_dir: str | Path | None = None,
+        output_dir: str | Path | None = None,
+        frontend_dir: str | Path | None = None,
+        max_upload_bytes: int | None = None,
+        max_ocr_chars: int | None = None,
+        max_xml_files: int | None = None,
+        debug: bool | None = None,
+    ) -> Settings:
+        """Copy with the given fields replaced; a ``None`` argument keeps the current value."""
+        return replace(
+            self,
+            ref_dir=_resolve(ref_dir) if ref_dir is not None else self.ref_dir,
+            output_dir=_resolve(output_dir) if output_dir is not None else self.output_dir,
+            frontend_dir=_resolve(frontend_dir) if frontend_dir is not None else self.frontend_dir,
+            max_upload_bytes=(
+                max_upload_bytes if max_upload_bytes is not None else self.max_upload_bytes
+            ),
+            max_ocr_chars=max_ocr_chars if max_ocr_chars is not None else self.max_ocr_chars,
+            max_xml_files=max_xml_files if max_xml_files is not None else self.max_xml_files,
+            debug=debug if debug is not None else self.debug,
+        )
 
     def list_references(self) -> tuple[str, ...]:
         """Names of every usable reference file, sorted, ignoring symlinks and strays."""
@@ -152,13 +154,12 @@ class Settings:
         supplied = Path(candidate)
         attempts = [supplied] if supplied.is_absolute() else [self.ref_dir / supplied, supplied]
         for path in attempts:
-            resolved = path.resolve() if path.exists() else path
-            if not str(resolved).endswith(_REFERENCE_SUFFIX):
+            if not path.is_file() or path.is_symlink():
                 continue
-            if path.is_file() and not path.is_symlink():
-                resolved = path.resolve()
-                if _within(resolved, self.ref_dir):
-                    return resolved
+            if path.suffix != _REFERENCE_SUFFIX:
+                continue
+            if _within(path.resolve(), self.ref_dir):
+                return path.resolve()
 
         known = ", ".join(self.list_references()) or "none"
         raise InvalidReference(f"Unknown reference {candidate!r}. Available references: {known}")

@@ -17,10 +17,10 @@ matching a verse on page forty.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Sequence
 
 from rapidfuzz import process
 
@@ -36,7 +36,7 @@ NO_MATCH = 0
 
 @dataclass(frozen=True)
 class Match:
-    """Best candidate found for one query line. ``line_index`` is 0-based, -1 when nothing matched."""
+    """Best candidate for one query line; ``line_index`` is 0-based, -1 when nothing matched."""
 
     text: str
     score: float
@@ -108,8 +108,10 @@ class ReferenceIndex:
     def _best_of(self, query: str, texts: tuple[str, ...], owners: tuple[int, ...]) -> Match:
         if not texts:
             return Match.none()
-        found = process.extract(query, list(texts), limit=1)[0]
-        return Match(texts[found[1]], float(found[0]), owners[found[1]])
+        # rapidfuzz always yields ``(choice, score, index)``; ``index`` is the position in
+        # ``texts``, which is what makes the reference line knowable without a string search.
+        choice, score, index = process.extract(query, list(texts), limit=1)[0]
+        return Match(choice, float(score), owners[index])
 
     def best_global(self, query: str) -> Match:
         return self._best_of(query, self._texts, self._owners)
@@ -118,9 +120,7 @@ class ReferenceIndex:
         texts, owners = self.window(center, radius)
         return self._best_of(query, texts, owners)
 
-    def match_for(
-        self, query: str, anchor: int = -1, radius: int = DEFAULT_WINDOW_RADIUS
-    ) -> Match:
+    def match_for(self, query: str, anchor: int = -1, radius: int = DEFAULT_WINDOW_RADIUS) -> Match:
         """Match one query line, preferring candidates near ``anchor`` and widening if weak."""
         if not query or not self._texts:
             return Match.none()

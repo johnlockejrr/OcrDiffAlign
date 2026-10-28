@@ -81,7 +81,9 @@ def test_align_rejects_an_out_of_range_threshold(client: TestClient, ocr_sample:
 
 
 def test_align_rejects_an_unknown_field(client: TestClient) -> None:
-    response = client.post("/api/align", json={"ref": REF_NAME, "ocr_text": "ברא", "threshold": 70})
+    response = client.post(
+        "/api/align", json={"ref": REF_NAME, "ocr_text": "ברא", "thresholdt": 70}
+    )
     assert response.status_code == 422
 
 
@@ -170,8 +172,7 @@ def test_pagexml_enforces_the_upload_count_limit(
         "/api/pagexml",
         data={"ref": REF_NAME},
         files=[
-            ("files", (path.name, path.read_bytes(), "application/xml"))
-            for path in xml_samples[:2]
+            ("files", (path.name, path.read_bytes(), "application/xml")) for path in xml_samples[:2]
         ],
     )
     assert response.status_code == 413

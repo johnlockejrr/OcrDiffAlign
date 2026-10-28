@@ -7,9 +7,9 @@ import io
 import os
 import tempfile
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from .diff import Confusion, Diff, char_diff, count_confusions
 from .index import DEFAULT_WINDOW_RADIUS, Match, ReferenceIndex, load_reference
@@ -72,7 +72,15 @@ def render_csv(results: Sequence[LineResult]) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(
-        ["Line No", "OCR Line", "Normalized OCR", "Reference Line No", "Reference Line", "Score", "Final Match"]
+        [
+            "Line No",
+            "OCR Line",
+            "Normalized OCR",
+            "Reference Line No",
+            "Reference Line",
+            "Score",
+            "Final Match",
+        ]
     )
     for result in results:
         writer.writerow(
@@ -106,7 +114,9 @@ def write_atomic(path: Path, content: str) -> Path:
     """Write a file by replacing a temporary sibling, so an interrupted run leaves no half-file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    handle, temporary = tempfile.mkstemp(
+        dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
+    )
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
             stream.write(content)
@@ -207,7 +217,8 @@ def format_report(alignment: Alignment) -> str:
         "📊 Summary Report",
         f"- Lines processed: {summary.lines}",
         f"- Average score: {summary.average_score:.2f}",
-        f"- Low-confidence (<{summary.threshold}): {summary.low_count} lines ({summary.low_pct:.1f}%)",
+        f"- Low-confidence (<{summary.threshold}): {summary.low_count} lines "
+        f"({summary.low_pct:.1f}%)",
     ]
     if alignment.confusions:
         lines.append("")
@@ -227,9 +238,9 @@ __all__ = [
     "align_text",
     "format_report",
     "read_text",
-    "summarize",
-    "render_csv",
     "render_confusions_csv",
+    "render_csv",
     "render_matched_text",
+    "summarize",
     "write_atomic",
 ]

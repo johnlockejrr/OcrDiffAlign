@@ -31,9 +31,7 @@ def test_substituted_line_is_matched_and_logged(mini_reference_text: str) -> Non
     ocr = "ברתשית ברא האלהים את השמים"
     alignment = align_reference_text(ocr, mini_reference_text)
     assert alignment.results[0].ref_index == 1
-    assert ("ת", "א", 1) in [
-        (c.ocr_char, c.ref_char, c.count) for c in alignment.confusions
-    ]
+    assert ("ת", "א", 1) in [(c.ocr_char, c.ref_char, c.count) for c in alignment.confusions]
 
 
 def test_line_without_hebrew_is_reported_but_not_matched(mini_reference_text: str) -> None:

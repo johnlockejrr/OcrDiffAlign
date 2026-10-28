@@ -7,6 +7,10 @@ import pytest
 from ocrdiffalign.errors import FileTooLarge, InvalidInput
 from ocrdiffalign.text import normalize, read_text, split_lines
 
+# bet+sheva, resh+tsere, alef, shin+shin-dot, hiriq, maqqef, yod, tav — written as escapes so
+# the invisible combining marks cannot drift between the two sides of the assertion.
+VOWELLED = "בְּרֵאשִׁ֖ית"
+
 
 def test_removes_latin_digits_and_punctuation() -> None:
     assert normalize("abc ברא123! ()") == "ברא"
@@ -18,7 +22,11 @@ def test_preserves_final_forms() -> None:
 
 
 def test_keeps_niqqud_and_maqqef() -> None:
-    assert normalize("בְּרֵאשִׁ֖ית") == "בְּרֵאשִׁית"
+    assert normalize(VOWELLED) == VOWELLED
+
+
+def test_drops_bidi_controls_outside_the_hebrew_block() -> None:
+    assert normalize("א‏ב") == "אב"
 
 
 def test_collapses_repeated_whitespace() -> None:
@@ -36,7 +44,7 @@ def test_normalize_is_idempotent() -> None:
 
 def test_read_text_accepts_bom(tmp_path: Path) -> None:
     path = tmp_path / "ocr.txt"
-    path.write_bytes("﻿ברא".encode("utf-8"))
+    path.write_bytes("﻿ברא".encode())
     assert read_text(path, max_bytes=1024).endswith("ברא")
 
 

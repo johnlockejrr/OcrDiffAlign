@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated, Sequence
+from typing import Annotated
 
 from fastapi import APIRouter, FastAPI, File, Form, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -263,9 +264,7 @@ def build_router(settings: Settings) -> APIRouter:
                     raise InvalidInput(f"{name or 'upload'} is not an .xml file.")
                 data = await upload.read(settings.max_upload_bytes + 1)
                 if len(data) > settings.max_upload_bytes:
-                    raise FileTooLarge(
-                        f"{name} is larger than {settings.max_upload_bytes} bytes."
-                    )
+                    raise FileTooLarge(f"{name} is larger than {settings.max_upload_bytes} bytes.")
                 documents.append(aligned_document(name, data, reference, threshold))
             except OcrDiffError as exc:
                 errors.append(DocumentFailureModel(filename=name, message=exc.message))
@@ -360,12 +359,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def handle_unexpected(_: Request, exc: Exception) -> JSONResponse:
         logger.exception("Unhandled error")
         message = f"{type(exc).__name__}: {exc}" if settings.debug else "Internal server error."
-        return JSONResponse(status_code=500, content={"error": "internal_error", "message": message})
+        return JSONResponse(
+            status_code=500, content={"error": "internal_error", "message": message}
+        )
 
     app.include_router(build_router(settings))
 
     if settings.frontend_dir is not None:
-        app.mount("/", StaticFiles(directory=str(settings.frontend_dir), html=True), name="frontend")
+        app.mount(
+            "/", StaticFiles(directory=str(settings.frontend_dir), html=True), name="frontend"
+        )
     else:
 
         @app.get("/", include_in_schema=False)
