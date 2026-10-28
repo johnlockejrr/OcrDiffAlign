@@ -27,6 +27,16 @@ def test_reference_lines_align_to_themselves_in_order(mini_reference_text: str) 
     assert alignment.confusions == ()
 
 
+def test_a_short_ocr_line_is_matched_by_a_short_span_not_the_whole_verse() -> None:
+    """The reported failure: OCR holding half a verse used to be answered with the whole verse."""
+    reference = "ויאמר יהוה אל משה נטה את ידך על השמים ויהי ברד בכל ארץ מצרים"
+    ocr = "ויאמר יהאה אל משה נטה את ידך על השמים"
+    result = align_reference_text(ocr, reference).results[0]
+    assert result.match == "ויאמר יהוה אל משה נטה את ידך על השמים"
+    assert result.final_match == result.match
+    assert result.score > 90
+
+
 def test_substituted_line_is_matched_and_logged(mini_reference_text: str) -> None:
     ocr = "ברתשית ברא האלהים את השמים"
     alignment = align_reference_text(ocr, mini_reference_text)
@@ -58,7 +68,7 @@ def test_csv_has_headers_and_one_row_per_line(mini_reference_text: str) -> None:
     alignment = align_reference_text(mini_reference_text, mini_reference_text)
     rows = render_csv(alignment.results).splitlines()
     assert rows[0] == (
-        "Line No,OCR Line,Normalized OCR,Reference Line No,Reference Line,Score,Final Match"
+        "Line No,OCR Line,Normalized OCR,Reference Line No,Best Match,Score,Final Match"
     )
     assert len(rows) == len(alignment.results) + 1
     assert rows[1].startswith("1,בראשית ברא האלהים את השמים,")
@@ -122,5 +132,5 @@ def test_summary_math_is_exact() -> None:
 
 
 def test_align_lines_against_an_explicit_index(mini_reference_text: str) -> None:
-    index = ReferenceIndex(split_lines(mini_reference_text), max_span=2)
+    index = ReferenceIndex(split_lines(mini_reference_text))
     assert align_lines(["ויבדל בין המים"], index).results[0].ref_index == 3

@@ -24,7 +24,7 @@ from lxml import etree
 from .align import Alignment, align_lines, write_atomic
 from .config import DEFAULT_MAX_UPLOAD_BYTES
 from .errors import FileTooLarge, InvalidDocument, InvalidInput
-from .index import DEFAULT_WINDOW_RADIUS, ReferenceIndex
+from .index import DEFAULT_LINE_RADIUS, ReferenceIndex
 
 PAGE_SCHEMA_PREFIX = "http://schema.primaresearch.org/PAGE/gts/pagecontent/"
 KNOWN_PAGE_NAMESPACES: tuple[str, ...] = (
@@ -236,7 +236,7 @@ def align_document(
     *,
     out_dir: Path,
     threshold: int = 70,
-    radius: int = DEFAULT_WINDOW_RADIUS,
+    radius: int = DEFAULT_LINE_RADIUS,
     max_bytes: int = DEFAULT_MAX_UPLOAD_BYTES,
 ) -> DocumentOutcome:
     """Align one document's OCR lines against ``index`` and save the corrected XML."""

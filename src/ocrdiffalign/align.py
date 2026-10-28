@@ -12,7 +12,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .diff import Confusion, Diff, char_diff, count_confusions
-from .index import DEFAULT_WINDOW_RADIUS, Match, ReferenceIndex, load_reference
+from .index import (
+    DEFAULT_LINE_RADIUS,
+    DEFAULT_MAX_EXTRA_WORDS,
+    Match,
+    ReferenceIndex,
+    load_reference,
+)
 from .text import normalize, read_text, split_lines
 
 
@@ -77,7 +83,7 @@ def render_csv(results: Sequence[LineResult]) -> str:
             "OCR Line",
             "Normalized OCR",
             "Reference Line No",
-            "Reference Line",
+            "Best Match",
             "Score",
             "Final Match",
         ]
@@ -140,7 +146,7 @@ def align_lines(
     index: ReferenceIndex,
     *,
     threshold: int = 70,
-    radius: int = DEFAULT_WINDOW_RADIUS,
+    radius: int = DEFAULT_LINE_RADIUS,
 ) -> Alignment:
     """Align already-split OCR lines against an index. Used by both the text and PAGE-XML paths."""
     results: list[LineResult] = []
@@ -182,7 +188,7 @@ def align_text(
     reference_path: Path,
     *,
     threshold: int = 70,
-    radius: int = DEFAULT_WINDOW_RADIUS,
+    radius: int = DEFAULT_LINE_RADIUS,
 ) -> Alignment:
     """Align raw OCR content against a reference file."""
     return align_lines(
@@ -198,13 +204,13 @@ def align_reference_text(
     reference_text: str,
     *,
     threshold: int = 70,
-    max_span: int = 2,
-    radius: int = DEFAULT_WINDOW_RADIUS,
+    max_extra_words: int = DEFAULT_MAX_EXTRA_WORDS,
+    radius: int = DEFAULT_LINE_RADIUS,
 ) -> Alignment:
     """Align against reference content given directly, bypassing the file cache."""
     return align_lines(
         split_lines(ocr_content),
-        ReferenceIndex(split_lines(reference_text), max_span),
+        ReferenceIndex(split_lines(reference_text), max_extra_words),
         threshold=threshold,
         radius=radius,
     )

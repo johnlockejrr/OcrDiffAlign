@@ -55,9 +55,15 @@ uv run ocrdiff pagexml --pagexml samples --ref schorch_verses.txt --out aligned
 ```
 
 `--ref` accepts a reference name inside `ref/` (`schorch_verses.txt`) or a path to a reference file.
-`align` writes `aligned/<ref>-<id>.csv`, `.txt` and `confusions_<ref>-<id>.csv`; `pagexml` writes
-corrected documents to `aligned/xml/`. The web app produces the same artefacts as the CLI — both
-call this one engine.
+`align` writes three artefacts, as the old scripts did:
+
+- `aligned/alignment_<id>.csv` — one row per OCR line: the line, its normalised form, the reference
+  line number and the matched passage, the score, and the final (possibly edited) text.
+- `aligned/alignment_<id>.txt` — the matched reference text, in the same order as the OCR input.
+- `aligned/confusions_alignment_<id>.csv` — which character was read as which, and how often.
+
+`pagexml` writes the corrected documents to `aligned/xml/`. The web app produces the same artefacts
+as the CLI — both call this one engine.
 
 ## HTTP API
 
@@ -94,12 +100,17 @@ aligned/          # generated output (gitignored)
 
 ## How the alignment works
 
-OCR lines are matched against reference *lines* rather than against every word window in the
-reference. Candidates for a line are the reference line itself plus joins with the following line,
-which covers an OCR line that spans two verses. Matching is anchored: after line *n* is placed,
-line *n+1* is searched in a window around that position, falling back to a global search when the
-window scores badly. That is both cheaper than scanning the whole reference per line and more
-accurate, because it uses the fact that a page of manuscript follows its edition in order.
+A manuscript page does not break lines where a printed edition does, so one OCR line can be half a
+verse, a whole one, or one and a half. Since `final_match` exists to *replace* the OCR line, the
+match has to be the same size as that line: for a line of *n* words the candidates are every
+*n-1*, *n* and *n+1* word span of the reference (`build_windows` in the old `align.py`). Matching a
+short OCR line against a whole reference line is what made earlier runs "complete the verse".
+
+Matching is anchored: after line *n* is placed, line *n+1* is searched in the reference lines around
+that position, falling back to the whole reference when the neighbourhood scores badly. That is both
+cheaper than building all 1..20-word windows up front and more accurate, because it uses the fact
+that a page of manuscript follows its edition in order. Every span carries the reference line it
+starts on, so the reported position is exact and no `reference.find(match)` guesswork is needed.
 
 Confusions come from `difflib` opcodes on the *normalised* pair, so a multi-character replacement
 reports every character involved instead of pairing only the last removed character with the first

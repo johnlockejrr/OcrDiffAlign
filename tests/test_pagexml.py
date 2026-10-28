@@ -186,7 +186,7 @@ def test_align_document_writes_corrected_xml(tmp_path: Path, xml_samples: list[P
     source = xml_samples[0]
     data = source.read_bytes()
     texts = parse_bytes(data, max_bytes=8 * 1024 * 1024).texts
-    outcome = align_document(source.name, data, ReferenceIndex(texts, max_span=1), out_dir=tmp_path)
+    outcome = align_document(source.name, data, ReferenceIndex(texts), out_dir=tmp_path)
     assert isinstance(outcome, DocumentOutcome)
     assert outcome.xml_path == tmp_path / "xml" / source.name
     assert outcome.alignment.summary.lines == len(texts)
@@ -196,7 +196,7 @@ def test_align_document_writes_corrected_xml(tmp_path: Path, xml_samples: list[P
 def test_align_document_strips_directories_from_upload_names(tmp_path: Path) -> None:
     data = page_bytes("ברא")
     outcome = align_document(
-        "../../etc/x.xml", data, ReferenceIndex(split_lines("ברא"), max_span=1), out_dir=tmp_path
+        "../../etc/x.xml", data, ReferenceIndex(split_lines("ברא")), out_dir=tmp_path
     )
     assert outcome.filename == "x.xml"
     assert outcome.xml_path == tmp_path / "xml" / "x.xml"
@@ -209,9 +209,7 @@ def test_align_documents_reports_per_file_failures(tmp_path: Path, xml_samples: 
         (source / file.name).write_bytes(file.read_bytes())
     (source / "broken.xml").write_text("<PcGts", encoding="utf-8")
 
-    outcomes, failures = align_documents(
-        source, ReferenceIndex(["ברא"], max_span=1), out_dir=tmp_path / "out"
-    )
+    outcomes, failures = align_documents(source, ReferenceIndex(["ברא"]), out_dir=tmp_path / "out")
     assert len(outcomes) == len(xml_samples)
     assert [failure.filename for failure in failures] == ["broken.xml"]
     assert isinstance(failures[0], DocumentFailure)
@@ -220,7 +218,7 @@ def test_align_documents_reports_per_file_failures(tmp_path: Path, xml_samples: 
 def test_align_documents_rejects_an_empty_directory(tmp_path: Path) -> None:
     (tmp_path / "empty").mkdir()
     with pytest.raises(InvalidInput):
-        align_documents(tmp_path / "empty", ReferenceIndex(["ברא"], max_span=1), out_dir=tmp_path)
+        align_documents(tmp_path / "empty", ReferenceIndex(["ברא"]), out_dir=tmp_path)
 
 
 def test_align_documents_enforces_the_file_limit(tmp_path: Path, xml_samples: list[Path]) -> None:
@@ -229,4 +227,4 @@ def test_align_documents_enforces_the_file_limit(tmp_path: Path, xml_samples: li
     for file in xml_samples:
         (source / file.name).write_bytes(file.read_bytes())
     with pytest.raises(InvalidInput):
-        align_documents(source, ReferenceIndex(["ברא"], max_span=1), out_dir=tmp_path, limit=2)
+        align_documents(source, ReferenceIndex(["ברא"]), out_dir=tmp_path, limit=2)
