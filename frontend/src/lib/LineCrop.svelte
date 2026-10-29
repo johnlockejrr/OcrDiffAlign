@@ -61,13 +61,18 @@
         <polygon points={crop.points} />
       </clipPath>
     </defs>
+    <!-- preserveAspectRatio="none" maps the raster onto exactly the declared page box, which is the
+         coordinate space the polygon lives in; the default would letterbox a resized scan inside it
+         and shift the crop off the glyphs. The url(#) form matters: without the hash the reference
+         is a relative URL, the clip is invalid, and the whole bounding box shows instead. -->
     <image
       href={crop.url}
       x="0"
       y="0"
       width={crop.width}
       height={crop.height}
-      clip-path="url({clipId})"
+      clip-path="url(#{clipId})"
+      preserveAspectRatio="none"
     />
   </svg>
 {/if}
