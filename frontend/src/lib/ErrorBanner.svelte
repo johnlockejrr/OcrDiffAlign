@@ -35,7 +35,6 @@
     {/if}
   </div>
 
-  <button type="button" class="banner-dismiss" onclick={ondismiss}>
-    Dismiss
-  </button>
+  <!-- the arrow form keeps svelte-check's JS-mode prop typing happy -->
+  <button type="button" class="banner-dismiss" onclick={() => ondismiss()}>Dismiss</button>
 </div>

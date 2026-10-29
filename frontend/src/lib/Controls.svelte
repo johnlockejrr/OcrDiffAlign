@@ -176,8 +176,9 @@
     {/if}
   {/if}
 
+  <!-- calling the props rather than handing them over keeps svelte-check's JS-mode typing happy -->
   <div class="actions">
-    <button type="button" class="primary" onclick={onrun} disabled={!canRun}>
+    <button type="button" class="primary" onclick={() => onrun()} disabled={!canRun}>
       {#if loading}
         <span class="spinner" aria-hidden="true"></span>
         <span>Working</span>
@@ -185,7 +186,7 @@
         <span>Run alignment</span>
       {/if}
     </button>
-    <button type="button" onclick={onexport} disabled={!canExport || loading}>
+    <button type="button" onclick={() => onexport()} disabled={!canExport || loading}>
       Save / Export
     </button>
     {#if dirty}

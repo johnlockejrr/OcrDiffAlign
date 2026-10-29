@@ -42,7 +42,8 @@
       Confusion log
     </button>
   {:else}
-    <button type="button" onclick={ongenerate} disabled={busy}>
+    <!-- the arrow form keeps svelte-check's JS-mode prop typing happy -->
+    <button type="button" onclick={() => ongenerate()} disabled={busy}>
       {busy ? 'Generating' : 'Generate exports'}
     </button>
     <p class="downloads-hint">
