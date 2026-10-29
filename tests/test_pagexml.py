@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from lxml import etree
 
+from conftest import PNG_BYTES
 from ocrdiffalign.align import Alignment, LineResult, summarize
 from ocrdiffalign.errors import FileTooLarge, InvalidDocument, InvalidInput
 from ocrdiffalign.index import ReferenceIndex
@@ -12,29 +13,48 @@ from ocrdiffalign.pagexml import (
     PAGE_SCHEMA_PREFIX,
     DocumentFailure,
     DocumentOutcome,
+    LineCrop,
     align_document,
     align_documents,
     apply_alignment,
     detect_namespace,
     parse_bytes,
     serialize,
+    store_image,
 )
 from ocrdiffalign.text import split_lines
 
 PAGE = "http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15"
 
 
-def page_bytes(*texts: str) -> bytes:
-    """A minimal PAGE-XML document whose TextLines hold exactly ``texts``."""
-    lines = "".join(
-        f'<TextLine id="l{number}"><TextEquiv><Unicode>{text}</Unicode></TextEquiv></TextLine>'
-        for number, text in enumerate(texts, start=1)
+def page_bytes(
+    *texts: str,
+    image: str | None = None,
+    width: int = 1000,
+    height: int = 100,
+) -> bytes:
+    """A minimal PAGE-XML document whose TextLines hold exactly ``texts``.
+
+    Every line carries a 4-point ``Coords`` rectangle, and the page declares ``image`` with its
+    ``width``/``height`` when an image name is given — as an OCR tool's export always does.
+    """
+    rows = []
+    for number, text in enumerate(texts, start=1):
+        top, bottom = number * 10, number * 10 + 8
+        points = f"0,{top} 100,{top} 100,{bottom} 0,{bottom}"
+        rows.append(
+            f'<TextLine id="l{number}"><Coords points="{points}"/>'
+            f"<TextEquiv><Unicode>{text}</Unicode></TextEquiv></TextLine>"
+        )
+    lines = "".join(rows)
+    page_image = (
+        f' imageFilename="{image}" imageWidth="{width}" imageHeight="{height}"' if image else ""
     )
     xml = (
         f'<?xml version="1.0" encoding="UTF-8"?>\n'
         f'<PcGts xmlns="{PAGE}" '
         f'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
-        f'<Metadata/><Page><TextRegion id="r1">{lines}</TextRegion></Page></PcGts>'
+        f'<Metadata/><Page{page_image}><TextRegion id="r1">{lines}</TextRegion></Page></PcGts>'
     )
     return xml.encode("utf-8")
 
@@ -60,14 +80,14 @@ def test_detect_namespace_rejects_a_non_page_namespace() -> None:
 
 def test_parse_pairs_every_line_with_the_element_it_came_from() -> None:
     document = parse_bytes(page_bytes("ברא", "ברא"), max_bytes=4096)
-    assert [element.text for element in document.elements] == ["ברא", "ברא"]
+    assert [line.element.text for line in document.lines] == ["ברא", "ברא"]
 
 
 def test_empty_lines_are_skipped_without_shifting_the_others() -> None:
     """The old code skipped empty lines on read, then re-walked every TextLine to write back."""
     document = parse_bytes(page_bytes("ברא", "", "ברא"), max_bytes=4096)
     assert document.line_count == 2
-    assert [element.text for element in document.elements] == ["ברא", "ברא"]
+    assert [line.element.text for line in document.lines] == ["ברא", "ברא"]
 
 
 def test_line_without_a_textequiv_layer_is_still_found() -> None:
@@ -77,15 +97,56 @@ def test_line_without_a_textequiv_layer_is_still_found() -> None:
         f'<TextRegion id="r1"><TextLine id="l1"><Unicode>ברא</Unicode></TextLine></TextRegion>'
         f"</Page></PcGts>"
     )
-    assert [element.text for element in parse_bytes(xml.encode(), max_bytes=4096).elements] == [
+    assert [line.element.text for line in parse_bytes(xml.encode(), max_bytes=4096).lines] == [
         "ברא"
     ]
+
+
+def test_page_image_details_come_from_the_page_element() -> None:
+    document = parse_bytes(
+        page_bytes("ברא", image="doc.png", width=1751, height=2131), max_bytes=4096
+    )
+    assert (document.image_filename, document.image_width, document.image_height) == (
+        "doc.png",
+        1751,
+        2131,
+    )
+    assert parse_bytes(page_bytes("ברא"), max_bytes=4096).image_filename is None
+
+
+def test_a_line_keeps_its_own_polygon_verbatim() -> None:
+    """A bounding box cannot express a skewed line, so the points are passed through unchanged."""
+    document = parse_bytes(page_bytes("ברא", "ברא"), max_bytes=4096)
+    assert [line.points for line in document.lines] == [
+        "0,10 100,10 100,18 0,18",
+        "0,20 100,20 100,28 0,28",
+    ]
+
+
+def test_a_line_without_coords_reports_no_polygon() -> None:
+    xml = (
+        f'<?xml version="1.0" encoding="UTF-8"?>\n<PcGts xmlns="{PAGE}"><Metadata/><Page>'
+        f'<TextRegion id="r1"><TextLine id="l1"><TextEquiv>'
+        f"<Unicode>ברא</Unicode></TextEquiv></TextLine></TextRegion></Page></PcGts>"
+    )
+    assert parse_bytes(xml.encode(), max_bytes=4096).lines[0].points is None
+
+
+def test_the_region_polygon_is_used_when_the_text_sits_on_the_region() -> None:
+    xml = (
+        f'<?xml version="1.0" encoding="UTF-8"?>\n<PcGts xmlns="{PAGE}"><Metadata/>'
+        f'<Page imageFilename="doc.png" imageWidth="9" imageHeight="9">'
+        f'<TextRegion id="r1"><Coords points="1,2 3,4"/>'
+        f"<TextEquiv><Unicode>ברא</Unicode></TextEquiv></TextRegion></Page></PcGts>"
+    )
+    document = parse_bytes(xml.encode(), max_bytes=4096)
+    assert document.lines[0].points == "1,2 3,4"
 
 
 def test_apply_alignment_writes_back_onto_the_source_element() -> None:
     document = parse_bytes(page_bytes("ברתשית"), max_bytes=4096)
     assert apply_alignment(document, one_line_alignment("ברתשית", "בראשית")) == 1
-    assert document.elements[0].text == "בראשית"
+    assert document.lines[0].element.text == "בראשית"
 
 
 def test_apply_alignment_refuses_a_mismatched_result_set() -> None:
@@ -99,7 +160,7 @@ def test_text_scoring_below_the_floor_is_left_alone() -> None:
     apply_alignment(
         document, one_line_alignment("אבג", "צףץץץץ", score=20.0), min_replace_score=99.0
     )
-    assert document.elements[0].text == "אבג"
+    assert document.lines[0].element.text == "אבג"
 
 
 def test_apply_alignment_leaves_lastchange_untouched_when_nothing_changed() -> None:
@@ -200,6 +261,85 @@ def test_align_document_strips_directories_from_upload_names(tmp_path: Path) -> 
     )
     assert outcome.filename == "x.xml"
     assert outcome.xml_path == tmp_path / "xml" / "x.xml"
+
+
+def test_store_image_writes_the_bytes_under_the_image_dir(tmp_path: Path) -> None:
+    stored = store_image("page.png", PNG_BYTES, tmp_path)
+    assert stored.parent == tmp_path / "images"
+    assert stored.name.startswith("page-") and stored.suffix == ".png"
+    assert stored.read_bytes() == PNG_BYTES
+
+
+def test_every_stored_image_gets_its_own_file(tmp_path: Path) -> None:
+    assert store_image("page.png", PNG_BYTES, tmp_path) != store_image(
+        "page.png", PNG_BYTES, tmp_path
+    )
+
+
+@pytest.mark.parametrize("name", ["page.gif", "page.txt", "no_extension"])
+def test_store_image_rejects_an_unsupported_extension(name: str, tmp_path: Path) -> None:
+    with pytest.raises(InvalidInput):
+        store_image(name, PNG_BYTES, tmp_path)
+
+
+def test_store_image_refuses_a_file_whose_header_denies_being_a_jpg(tmp_path: Path) -> None:
+    """A ``.jpg`` holding PNG bytes would render as nothing, so it never reaches the output dir."""
+    with pytest.raises(InvalidInput):
+        store_image("page.jpg", PNG_BYTES, tmp_path)
+
+
+def test_store_image_refuses_an_empty_file(tmp_path: Path) -> None:
+    with pytest.raises(InvalidInput):
+        store_image("page.png", b"", tmp_path)
+
+
+def test_store_image_refuses_an_oversized_file(tmp_path: Path) -> None:
+    with pytest.raises(FileTooLarge):
+        store_image("page.png", PNG_BYTES, tmp_path, max_bytes=4)
+
+
+def test_store_image_needs_a_name(tmp_path: Path) -> None:
+    with pytest.raises(InvalidInput):
+        store_image("", PNG_BYTES, tmp_path)
+
+
+def test_align_document_stores_the_named_image_and_crops_every_line(tmp_path: Path) -> None:
+    data = page_bytes("ברא", "ברא", image="page.png")
+    outcome = align_document(
+        "doc.xml",
+        data,
+        ReferenceIndex(split_lines("ברא\nברא")),
+        out_dir=tmp_path,
+        images={"page.png": PNG_BYTES},
+    )
+    assert outcome.image_filename == "page.png"
+    assert outcome.image_path is not None
+    assert outcome.image_path.read_bytes() == PNG_BYTES
+    assert (outcome.image_width, outcome.image_height) == (1000, 100)
+    assert outcome.crops == (
+        LineCrop(1, "0,10 100,10 100,18 0,18"),
+        LineCrop(2, "0,20 100,20 100,28 0,28"),
+    )
+
+
+def test_align_document_matches_the_image_name_case_insensitively(tmp_path: Path) -> None:
+    data = page_bytes("ברא", image="Page.PNG")
+    outcome = align_document(
+        "doc.xml", data, ReferenceIndex(["ברא"]), out_dir=tmp_path, images={"page.png": PNG_BYTES}
+    )
+    assert outcome.image_filename == "Page.PNG"
+    assert outcome.image_path is not None
+
+
+def test_align_document_without_the_named_image_still_aligns_but_has_no_crops(
+    tmp_path: Path,
+) -> None:
+    data = page_bytes("ברא", image="page.png")
+    outcome = align_document("doc.xml", data, ReferenceIndex(["ברא"]), out_dir=tmp_path)
+    assert outcome.image_filename == "page.png"
+    assert outcome.image_path is None
+    assert outcome.crops == ()
+    assert outcome.xml_path.exists()
 
 
 def test_align_documents_reports_per_file_failures(tmp_path: Path, xml_samples: list[Path]) -> None:

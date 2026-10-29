@@ -2,6 +2,7 @@
   import SummaryBar from './SummaryBar.svelte';
   import DownloadGroup from './DownloadGroup.svelte';
   import ResultRow from './ResultRow.svelte';
+  import { cropFor } from './documents.js';
 
   const PAGE_SIZE = 10;
 
@@ -52,7 +53,10 @@
 
   {#if doc !== null}
     <SummaryBar summary={doc.summary} source={doc.xml_path ?? doc.ref ?? doc.label} />
-    <DownloadGroup files={doc.files} {loading} {ongenerate} />
+    {#if doc.page?.error}
+      <p class="page-error">{doc.page.error}</p>
+    {/if}
+    <DownloadGroup files={doc.files} busy={loading} {ongenerate} />
 
     {#if rows.length > 0}
       <nav class="pager" aria-label="Result pages">
@@ -75,7 +79,7 @@
 
       <ol class="rows">
         {#each visible as row, index (`${row.line_no}-${index}`)}
-          <ResultRow {row} {threshold} {onEdit} />
+          <ResultRow {row} {threshold} crop={cropFor(doc, row.line_no)} {onEdit} />
         {/each}
       </ol>
     {:else}

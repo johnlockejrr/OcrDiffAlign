@@ -1,7 +1,7 @@
 """Runtime configuration.
 
 Everything is resolved once from the environment so no path is ever taken from a request
-without validation against ``ref_dir``.
+without validation against ``ref_dir`` or ``image_dir``.
 """
 
 from __future__ import annotations
@@ -10,13 +10,24 @@ import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .errors import InvalidInput, InvalidReference
+from .errors import InvalidInput, InvalidReference, NotFound
 
 DEFAULT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+DEFAULT_MAX_IMAGE_BYTES = 32 * 1024 * 1024
 DEFAULT_MAX_OCR_CHARS = 2_000_000
 DEFAULT_MAX_XML_FILES = 64
 DEFAULT_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 _REFERENCE_SUFFIX = ".txt"
+
+# Page images may be uploaded next to a PAGE-XML file; anything else is refused by name alone.
+IMAGE_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+}
+IMAGE_SUFFIXES = frozenset(IMAGE_MEDIA_TYPES)
 
 
 def _discover_root() -> Path:
@@ -74,6 +85,7 @@ class Settings:
     output_dir: Path
     frontend_dir: Path | None = None
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
+    max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES
     max_ocr_chars: int = DEFAULT_MAX_OCR_CHARS
     max_xml_files: int = DEFAULT_MAX_XML_FILES
     allowed_origins: tuple[str, ...] = DEFAULT_ORIGINS
@@ -96,6 +108,7 @@ class Settings:
             output_dir=_path_env("OCRDIFF_OUTPUT_DIR", resolved_root / "aligned"),
             frontend_dir=frontend_dir,
             max_upload_bytes=_int_env("OCRDIFF_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES),
+            max_image_bytes=_int_env("OCRDIFF_MAX_IMAGE_BYTES", DEFAULT_MAX_IMAGE_BYTES),
             max_ocr_chars=_int_env("OCRDIFF_MAX_OCR_CHARS", DEFAULT_MAX_OCR_CHARS),
             max_xml_files=_int_env("OCRDIFF_MAX_XML_FILES", DEFAULT_MAX_XML_FILES),
             allowed_origins=_origins_env(DEFAULT_ORIGINS),
@@ -109,6 +122,7 @@ class Settings:
         output_dir: str | Path | None = None,
         frontend_dir: str | Path | None = None,
         max_upload_bytes: int | None = None,
+        max_image_bytes: int | None = None,
         max_ocr_chars: int | None = None,
         max_xml_files: int | None = None,
         debug: bool | None = None,
@@ -122,10 +136,35 @@ class Settings:
             max_upload_bytes=(
                 max_upload_bytes if max_upload_bytes is not None else self.max_upload_bytes
             ),
+            max_image_bytes=(
+                max_image_bytes if max_image_bytes is not None else self.max_image_bytes
+            ),
             max_ocr_chars=max_ocr_chars if max_ocr_chars is not None else self.max_ocr_chars,
             max_xml_files=max_xml_files if max_xml_files is not None else self.max_xml_files,
             debug=debug if debug is not None else self.debug,
         )
+
+    @property
+    def image_dir(self) -> Path:
+        """Where uploaded page images live, alongside the aligned XML."""
+        return self.output_dir / "images"
+
+    def resolve_stored_image(self, name: str) -> Path:
+        """Look up a previously stored page image by name, confined to ``image_dir``.
+
+        Only a bare file name is accepted — ``..``, separators and absolute paths all fail — so a
+        client can ask only for an image this server handed back, never for a file on disk.
+        """
+        candidate = (name or "").strip()
+        supplied = Path(candidate) if candidate else None
+        if supplied is None or supplied.name != candidate:
+            raise NotFound(f"Unknown image {name!r}.")
+        if supplied.suffix.lower() not in IMAGE_SUFFIXES:
+            raise NotFound(f"Unknown image {name!r}.")
+        target = self.image_dir / supplied.name
+        if target.is_symlink() or not target.is_file():
+            raise NotFound(f"Unknown image {name!r}.")
+        return target.resolve()
 
     def list_references(self) -> tuple[str, ...]:
         """Names of every usable reference file, sorted, ignoring symlinks and strays."""

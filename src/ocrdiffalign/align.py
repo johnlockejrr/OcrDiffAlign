@@ -116,7 +116,7 @@ def render_confusions_csv(confusions: Sequence[Confusion]) -> str:
     return buffer.getvalue()
 
 
-def write_atomic(path: Path, content: str) -> Path:
+def write_atomic(path: Path, content: str | bytes) -> Path:
     """Write a file by replacing a temporary sibling, so an interrupted run leaves no half-file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,8 +124,12 @@ def write_atomic(path: Path, content: str) -> Path:
         dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
     )
     try:
-        with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
-            stream.write(content)
+        if isinstance(content, bytes):
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(content)
+        else:
+            with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
+                stream.write(content)
         os.replace(temporary, path)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)

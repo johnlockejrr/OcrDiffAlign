@@ -10,22 +10,23 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
-from fastapi import APIRouter, FastAPI, File, Form, Request, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from . import __version__
 from .align import Alignment, Confusion, LineResult, Summary, align_text, summarize
-from .config import Settings
+from .config import IMAGE_MEDIA_TYPES, Settings
 from .errors import FileTooLarge, InvalidInput, OcrDiffError
 from .index import load_reference
 from .pagexml import align_document
@@ -113,11 +114,24 @@ class RefsResponse(BaseModel):
     refs: list[RefEntry]
 
 
+class LineCropModel(BaseModel):
+    """The ``TextLine`` polygon for one result line, in the page image's coordinate space."""
+
+    line_no: int = Field(ge=1)
+    points: str = Field(min_length=1)
+
+
 class DocumentModel(BaseModel):
     filename: str
     xml_path: str
     summary: SummaryModel
     results: list[LineResultModel]
+    image_filename: str | None = None
+    image_url: str | None = None
+    image_width: int | None = Field(default=None, ge=1)
+    image_height: int | None = Field(default=None, ge=1)
+    image_error: str | None = None
+    crops: list[LineCropModel] = []
 
 
 class DocumentFailureModel(BaseModel):
@@ -144,6 +158,11 @@ class HealthResponse(BaseModel):
     version: str
 
 
+def _image_url(path: Path | None) -> str | None:
+    """The URL a stored page image is served from, or ``None`` when there is none."""
+    return f"/api/image?name={quote(path.name)}" if path is not None else None
+
+
 def _lines(results: Sequence[LineResult]) -> list[LineResultModel]:
     return [LineResultModel(**asdict(result)) for result in results]
 
@@ -166,7 +185,11 @@ def build_router(settings: Settings) -> APIRouter:
     router = APIRouter(prefix="/api")
 
     def aligned_document(
-        filename: str, data: bytes, reference: Path, threshold: int
+        filename: str,
+        data: bytes,
+        reference: Path,
+        threshold: int,
+        images: Mapping[str, bytes] | None = None,
     ) -> DocumentModel:
         outcome = align_document(
             filename,
@@ -175,12 +198,20 @@ def build_router(settings: Settings) -> APIRouter:
             out_dir=settings.output_dir,
             threshold=threshold,
             max_bytes=settings.max_upload_bytes,
+            images=images,
+            max_image_bytes=settings.max_image_bytes,
         )
         return DocumentModel(
             filename=outcome.filename,
             xml_path=str(outcome.xml_path),
             summary=_summary(outcome.alignment.summary),
             results=_lines(outcome.alignment.results),
+            image_filename=outcome.image_filename,
+            image_url=_image_url(outcome.image_path),
+            image_width=outcome.image_width,
+            image_height=outcome.image_height,
+            image_error=outcome.image_error,
+            crops=[LineCropModel(**asdict(crop)) for crop in outcome.crops],
         )
 
     @router.get("/health", response_model=HealthResponse)
@@ -241,11 +272,17 @@ def build_router(settings: Settings) -> APIRouter:
             confusions_path=str(paths["confusions_csv"]),
         )
 
+    @router.get("/image")
+    def image(name: Annotated[str, Query(min_length=1, max_length=255)]) -> FileResponse:
+        path = settings.resolve_stored_image(name)
+        return FileResponse(path, media_type=IMAGE_MEDIA_TYPES[Path(name).suffix.lower()])
+
     @router.post("/pagexml", response_model=PagexmlResponse)
     async def pagexml(
         ref: Annotated[str, Form(min_length=1, max_length=500)],
         files: Annotated[list[UploadFile], File()],
         threshold: Annotated[int, Form(ge=0, le=100)] = 70,
+        images: list[UploadFile] = File(default=[]),
     ) -> PagexmlResponse:
         reference = settings.resolve_reference(ref)
         if not files:
@@ -254,6 +291,26 @@ def build_router(settings: Settings) -> APIRouter:
             raise FileTooLarge(
                 f"{len(files)} files uploaded, limit is {settings.max_xml_files} per request."
             )
+        if len(images) > settings.max_xml_files:
+            raise FileTooLarge(
+                f"{len(images)} images uploaded, limit is {settings.max_xml_files} per request."
+            )
+
+        # Each XML names its own image, so uploads are keyed by name and matched per document;
+        # images that belong to no uploaded XML are read but unused.
+        image_bytes: dict[str, bytes] = {}
+        for upload in images:
+            name = Path(upload.filename or "").name
+            if not name:
+                continue
+            try:
+                image_bytes.setdefault(
+                    name.casefold(), await upload.read(settings.max_image_bytes + 1)
+                )
+            except OSError as exc:
+                raise InvalidInput(f"{name} could not be read.") from exc
+            finally:
+                await upload.close()
 
         documents: list[DocumentModel] = []
         errors: list[DocumentFailureModel] = []
@@ -265,7 +322,7 @@ def build_router(settings: Settings) -> APIRouter:
                 data = await upload.read(settings.max_upload_bytes + 1)
                 if len(data) > settings.max_upload_bytes:
                     raise FileTooLarge(f"{name} is larger than {settings.max_upload_bytes} bytes.")
-                documents.append(aligned_document(name, data, reference, threshold))
+                documents.append(aligned_document(name, data, reference, threshold, image_bytes))
             except OcrDiffError as exc:
                 errors.append(DocumentFailureModel(filename=name, message=exc.message))
             finally:
@@ -292,7 +349,12 @@ class SecurityHeadersMiddleware:
             await self.app(scope, receive, send)
             return
 
-        apply_csp = not scope.get("path", "").startswith("/api")
+        path = scope.get("path", "")
+        apply_csp = not path.startswith("/api")
+        # A stored image's name contains a random suffix, so the name changes whenever the content
+        # does and the asset itself never needs revalidating. Caching it also matters for the page:
+        # every visible row references the same URL, and without this each crop would refetch it.
+        cache_control = b"private, max-age=86400" if path.startswith("/api/image") else b"no-store"
 
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -302,7 +364,7 @@ class SecurityHeadersMiddleware:
                     b"x-content-type-options": b"nosniff",
                     b"x-frame-options": b"DENY",
                     b"referrer-policy": b"no-referrer",
-                    b"cache-control": b"no-store",
+                    b"cache-control": cache_control,
                 }
                 if apply_csp:
                     wanted[b"content-security-policy"] = _CONTENT_SECURITY_POLICY.encode()

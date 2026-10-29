@@ -9,7 +9,9 @@ against a printed critical edition.
 - **CLI** — `ocrdiff align` for plain OCR text, `ocrdiff pagexml` for PAGE-XML files,
   `ocrdiff serve` for the app.
 - **Web app** — Svelte SPA with reference selection, inline editing of every matched line,
-  character-level diffs and CSV/TXT downloads.
+  character-level diffs and CSV/TXT downloads. Uploading a PAGE-XML's page image alongside it adds
+  a crop of each `TextLine` — its own `Coords` polygon, not a bounding box — next to the
+  transcription, so a line can be checked against the pixels the OCR actually read.
 
 ## Requirements
 
@@ -63,7 +65,9 @@ uv run ocrdiff pagexml --pagexml samples --ref schorch_verses.txt --out aligned
 - `aligned/confusions_alignment_<id>.csv` — which character was read as which, and how often.
 
 `pagexml` writes the corrected documents to `aligned/xml/`. The web app produces the same artefacts
-as the CLI — both call this one engine.
+as the CLI — both call this one engine — and, when the page image is uploaded with the XML, stores it
+as `aligned/images/<name>-<8 hex>.<ext>` for the line crops to be drawn from. The CLI has no image
+option; the image matters only for the visual check the web app offers.
 
 ## HTTP API
 
@@ -72,7 +76,8 @@ as the CLI — both call this one engine.
 | `GET` | `/api/health` | Liveness and version |
 | `GET` | `/api/refs` | Reference files available for selection |
 | `POST` | `/api/align` | Align pasted OCR text; returns results, summary, confusions and artefact contents |
-| `POST` | `/api/pagexml` | Align uploaded PAGE-XML files; saves corrected XML, reports per-file errors |
+| `POST` | `/api/pagexml` | Align uploaded PAGE-XML files; saves corrected XML, reports per-file errors. Also accepts the page images the XMLs name (`images`), and answers with each line's polygon |
+| `GET` | `/api/image` | Serve one stored page image, confined to `aligned/images/` |
 | `POST` | `/api/export` | Persist edited results and re-render the artefacts |
 | `GET` | `/api/docs` | OpenAPI explorer |
 

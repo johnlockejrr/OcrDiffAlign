@@ -21,6 +21,13 @@ class OcrDiffError(Exception):
         return {"error": self.error_code, "message": self.message}
 
 
+class NotFound(OcrDiffError):
+    """A stored artefact the client asked for does not exist."""
+
+    error_code = "not_found"
+    status_code = 404
+
+
 class InvalidReference(OcrDiffError):
     """The requested reference name is not a usable file inside the configured reference dir."""
 

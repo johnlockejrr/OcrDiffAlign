@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import upload_for
 from ocrdiffalign.app import create_app
 from ocrdiffalign.config import Settings
 
@@ -162,6 +163,116 @@ def test_pagexml_requires_a_known_reference(client: TestClient) -> None:
         "/api/pagexml", data={"ref": "nope.txt"}, files=[("files", ("a.xml", b"<PcGts/>", ""))]
     )
     assert response.status_code == 400
+
+
+def test_pagexml_reports_the_image_and_line_crops_it_received(
+    client: TestClient, settings: Settings, xml_samples: list[Path]
+) -> None:
+    source = xml_samples[0]
+    name, blob, mime = upload_for(source)
+    response = client.post(
+        "/api/pagexml",
+        data={"ref": REF_NAME},
+        files=[
+            ("files", (source.name, source.read_bytes(), "application/xml")),
+            ("images", (name, blob, mime)),
+        ],
+    )
+    document = response.json()["documents"][0]
+    assert document["image_filename"] == name
+    assert Path(document["xml_path"]).exists()
+
+    served = client.get(document["image_url"])
+    assert served.status_code == 200
+    assert served.content == blob
+    assert served.headers["content-type"] == mime
+
+    results = document["results"]
+    assert [crop["line_no"] for crop in document["crops"]] == [
+        result["line_no"] for result in results
+    ]
+    assert all(crop["points"] for crop in document["crops"])
+
+
+def test_pagexml_without_an_image_reports_no_image_and_no_crops(
+    client: TestClient, settings: Settings, xml_samples: list[Path]
+) -> None:
+    source = xml_samples[0]
+    document = client.post(
+        "/api/pagexml",
+        data={"ref": REF_NAME},
+        files=[("files", (source.name, source.read_bytes(), "application/xml"))],
+    ).json()["documents"][0]
+    assert document["image_filename"] == upload_for(source)[0]
+    assert document["image_url"] is None
+    assert document["crops"] == []
+
+
+def test_image_route_refuses_a_name_reaching_outside_the_image_dir(client: TestClient) -> None:
+    assert client.get("/api/image?name=../../etc/passwd").status_code == 404
+
+
+def test_image_route_refuses_a_name_that_was_never_stored(client: TestClient) -> None:
+    response = client.get("/api/image?name=ghost.png")
+    assert response.status_code == 404
+    assert response.json()["error"] == "not_found"
+
+
+def test_stored_images_are_cacheable_while_other_api_calls_are_not(
+    client: TestClient, settings: Settings, xml_samples: list[Path]
+) -> None:
+    source = xml_samples[0]
+    name, blob, mime = upload_for(source)
+    document = client.post(
+        "/api/pagexml",
+        data={"ref": REF_NAME},
+        files=[
+            ("files", (source.name, source.read_bytes(), "application/xml")),
+            ("images", (name, blob, mime)),
+        ],
+    ).json()["documents"][0]
+    assert "max-age" in client.get(document["image_url"]).headers["cache-control"]
+    assert client.get("/api/health").headers["cache-control"] == "no-store"
+
+
+def test_pagexml_keeps_the_alignment_when_its_image_is_too_large(
+    settings: Settings, xml_samples: list[Path]
+) -> None:
+    """A picture that cannot be stored costs the crops, never the alignment of the XML."""
+    client = TestClient(create_app(settings.with_overrides(max_image_bytes=4)))
+    source = xml_samples[0]
+    name, blob, mime = upload_for(source)
+    response = client.post(
+        "/api/pagexml",
+        data={"ref": REF_NAME},
+        files=[
+            ("files", (source.name, source.read_bytes(), "application/xml")),
+            ("images", (name, blob, mime)),
+        ],
+    )
+    body = response.json()
+    assert body["errors"] == []
+    document = body["documents"][0]
+    assert document["image_url"] is None
+    assert "limit is 4 bytes" in (document["image_error"] or "")
+    assert Path(document["xml_path"]).exists()
+
+
+def test_pagexml_reports_an_image_it_cannot_read_rather_than_failing_the_document(
+    client: TestClient, xml_samples: list[Path]
+) -> None:
+    source = xml_samples[0]
+    name = upload_for(source)[0]
+    document = client.post(
+        "/api/pagexml",
+        data={"ref": REF_NAME},
+        files=[
+            ("files", (source.name, source.read_bytes(), "application/xml")),
+            ("images", (name, b"not an image", "image/jpeg")),
+        ],
+    ).json()["documents"][0]
+    assert f"not a readable .{name.rsplit('.', 1)[1]}" in (document["image_error"] or "")
+    assert document["crops"] == []
 
 
 def test_pagexml_enforces_the_upload_count_limit(

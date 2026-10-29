@@ -453,6 +453,13 @@ button.primary {
   margin-left: 0.35rem;
 }
 
+/* Why a PAGE-XML document has no line crops, when its image was supplied but rejected. */
+.page-error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--warn);
+}
+
 .downloads {
   display: flex;
   align-items: center;
@@ -546,6 +553,20 @@ button.primary {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
+}
+
+.cell:has(.crop) {
+  align-items: start;
+}
+
+/* A TextLine cut out of the page image: capped in height so a tall crop cannot stretch a row. */
+.crop {
+  display: block;
+  width: 100%;
+  max-height: 11rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--surface-alt);
 }
 
 .hebrew {

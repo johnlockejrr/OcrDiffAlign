@@ -14,6 +14,8 @@
     threshold = $bindable(70),
     /** @type {File[]} */
     xmlFiles = $bindable([]),
+    /** @type {File[]} */
+    imageFiles = $bindable([]),
     /** @type {boolean} */
     loading = false,
     /** @type {boolean} */
@@ -51,6 +53,11 @@
   /** @param {Event} event */
   function pickXmlFiles(event) {
     xmlFiles = [.../** @type {HTMLInputElement} */ (event.target).files];
+  }
+
+  /** @param {Event} event */
+  function pickImageFiles(event) {
+    imageFiles = [.../** @type {HTMLInputElement} */ (event.target).files];
   }
 </script>
 
@@ -144,6 +151,22 @@
     {#if xmlFiles.length > 0}
       <ul class="file-list" aria-label="Selected PAGE-XML files">
         {#each xmlFiles as file, index (`${file.name}-${index}`)}
+          <li>
+            <span class="file-name">{file.name}</span>
+            <span class="file-size">{formatBytes(file.size)}</span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+
+    <label class="field">
+      <span class="field-label">Page images (optional)</span>
+      <input type="file" accept="image/*" multiple onchange={pickImageFiles} />
+    </label>
+
+    {#if imageFiles.length > 0}
+      <ul class="file-list" aria-label="Selected page images">
+        {#each imageFiles as file, index (`${file.name}-${index}`)}
           <li>
             <span class="file-name">{file.name}</span>
             <span class="file-size">{formatBytes(file.size)}</span>

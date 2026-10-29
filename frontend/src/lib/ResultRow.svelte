@@ -1,11 +1,14 @@
 <script>
   import { formatScore } from './format.js';
+  import LineCrop from './LineCrop.svelte';
 
   let {
     /** @type {import('./types.js').AlignResult} */
     row,
     /** @type {number} */
     threshold = 70,
+    /** @type {import('./types.js').LineCropView | null} */
+    crop = null,
     /** @type {(row: import('./types.js').AlignResult, value: string) => void} */
     onEdit = () => {},
   } = $props();
@@ -21,6 +24,13 @@
       <span class="flag">Below threshold</span>
     {/if}
   </div>
+
+  {#if crop !== null}
+    <div class="cell">
+      <span class="cell-label">Line image</span>
+      <LineCrop {crop} />
+    </div>
+  {/if}
 
   <div class="cell">
     <span class="cell-label">OCR</span>

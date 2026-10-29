@@ -61,11 +61,12 @@ export const api = {
   align: ({ ref, ocrText, threshold }) =>
     jsonRequest('POST', '/align', { ref, ocr_text: ocrText, threshold }),
 
-  pagexml: ({ ref, threshold, files }) => {
+  pagexml: ({ ref, threshold, files, images = [] }) => {
     const form = new FormData();
     form.append('ref', ref);
     form.append('threshold', String(threshold));
     for (const file of files) form.append('files', file, file.name);
+    for (const image of images) form.append('images', image, image.name);
     return request('/pagexml', { method: 'POST', body: form });
   },
 

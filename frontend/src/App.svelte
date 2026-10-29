@@ -12,6 +12,7 @@
   let ocrText = $state('');
   let threshold = $state(70);
   let xmlFiles = $state([]);
+  let imageFiles = $state([]);
 
   let loading = $state(false);
   let error = $state(null);
@@ -55,7 +56,9 @@
       if (mode === 'text') {
         documents = docsFromAlign(ref, await api.align({ ref, ocrText, threshold }));
       } else {
-        const parsed = parsePagexml(await api.pagexml({ ref, threshold, files: xmlFiles }));
+        const parsed = parsePagexml(
+          await api.pagexml({ ref, threshold, files: xmlFiles, images: imageFiles }),
+        );
         documents = parsed.documents;
         warnings = parsed.errors;
         if (parsed.documents.length === 0 && parsed.errors.length === 0) {
@@ -143,6 +146,7 @@
     bind:text={ocrText}
     bind:threshold
     bind:xmlFiles
+    bind:imageFiles
     {loading}
     {canRun}
     canExport={currentDoc !== null}
