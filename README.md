@@ -13,6 +13,8 @@ against a printed critical edition.
   a crop of each `TextLine` — its own `Coords` polygon, not a bounding box — next to the
   transcription, so a line can be checked against the pixels the OCR actually read.
 
+<img src="docs/ui-screenshot.webp" width="780" alt="The results view: each aligned OCR line shown with its crop from the page image, its character diff, its reference line and an editable final match">
+
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) (Python 3.10+; the project pins its own `.venv`)
